@@ -1,0 +1,23 @@
+[
+  {
+    "type": "video",
+    "url": "https://github.com/adrianofreire-ti/tvplaybtc/blob/main/Gest%C3%A3o_Integrada_IFMA_2025.pptx_20260415_120426_0000.mp4"
+  },
+  {
+    "type": "image",
+    "name": "Troque pelo primeiro arquivo real",
+    "url": "https://drive.google.com/uc?export=download&id=COLE_AQUI_O_ID_DA_IMAGEM_1",
+    "duration": 10
+  },
+  {
+    "type": "video",
+    "name": "Troque pelo primeiro vídeo real",
+    "url": "https://drive.google.com/uc?export=download&id=COLE_AQUI_O_ID_DO_VIDEO_1"
+  },
+  {
+    "type": "image",
+    "name": "Troque pela segunda imagem real",
+    "url": "https://drive.google.com/uc?export=download&id=COLE_AQUI_O_ID_DA_IMAGEM_2",
+    "duration": 8
+  }
+]

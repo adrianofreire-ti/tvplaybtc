@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Painel TV Player</title>
+  <style>
+    :root {
+      --bg: #000;
+      --fg: #fff;
+      --muted: rgba(255,255,255,.72);
+      --panel: rgba(0,0,0,.35);
+      --shadow: 0 10px 30px rgba(0,0,0,.35);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      background: var(--bg); color: var(--fg); overflow: hidden;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+    #app {
+      width: 100vw; height: 100vh; position: relative; background: #000;
+    }
+    #viewer {
+      width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+      background: #000;
+    }
+    img, video {
+      width: 100%; height: 100%; object-fit: contain; background: #000;
+    }
+    #overlay {
+      position: absolute; top: 0; left: 0; right: 0; display: flex; justify-content: space-between;
+      align-items: center; gap: 16px; padding: 16px 18px; pointer-events: none;
+    }
+    #brand, #clock {
+      background: var(--panel); backdrop-filter: blur(6px); box-shadow: var(--shadow);
+      border-radius: 14px; padding: 10px 14px;
+    }
+    #brand {
+      max-width: 55vw;
+    }
+    #brand .title {
+      font-size: 20px; font-weight: 700; line-height: 1.2;
+    }
+    #brand .subtitle {
+      font-size: 12px; color: var(--muted); margin-top: 4px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    #clock {
+      text-align: right; min-width: 170px;
+    }
+    #clock .time { font-size: 28px; font-weight: 700; line-height: 1; }
+    #clock .date { font-size: 12px; color: var(--muted); margin-top: 6px; }
+    #status {
+      position: absolute; left: 18px; bottom: 18px; max-width: 62vw;
+      background: rgba(0,0,0,.48); color: #fff; padding: 10px 14px; border-radius: 14px;
+      box-shadow: var(--shadow); font-size: 14px; opacity: 0; transform: translateY(10px);
+      transition: opacity .35s ease, transform .35s ease;
+    }
+    #status.show { opacity: 1; transform: translateY(0); }
+    #loading {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      background: #000; color: #fff; font-size: 20px;
+    }
+    .fade-in { animation: fadeIn .45s ease; }
+    @keyframes fadeIn { from { opacity: .2; } to { opacity: 1; } }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="viewer"></div>
+    <div id="loading">Carregando player...</div>
+    <div id="overlay">
+      <div id="brand">
+        <div class="title">Painel TV Player</div>
+        <div class="subtitle" id="folderInfo">Pasta de mídia configurada no projeto</div>
+      </div>
+      <div id="clock">
+        <div class="time" id="timeNow">--:--</div>
+        <div class="date" id="dateNow">--</div>
+      </div>
+    </div>
+    <div id="status"></div>
+  </div>
+
+  <script>
+    const CONFIG_URL = './config.json';
+    const PLAYLIST_URL = './playlist.json';
+
+    let config = {
+      title: 'Painel TV Player',
+      subtitle: 'Netlify + Google Drive',
+      folderUrl: '',
+      playlistRefreshMs: 60000,
+      errorRetryMs: 5000,
+      timezone: 'America/Fortaleza'
+    };
+
+    let playlist = [];
+    let index = 0;
+    let timerId = null;
+
+    const viewer = document.getElementById('viewer');
+    const loading = document.getElementById('loading');
+    const statusBox = document.getElementById('status');
+    const folderInfo = document.getElementById('folderInfo');
+    const brandTitle = document.querySelector('#brand .title');
+    const timeNow = document.getElementById('timeNow');
+    const dateNow = document.getElementById('dateNow');
+
+    function showStatus(message, persist = false) {
+      statusBox.textContent = message;
+      statusBox.classList.add('show');
+      if (!persist) {
+        setTimeout(() => statusBox.classList.remove('show'), 3500);
+      }
+    }
+
+    async function loadConfig() {
+      try {
+        const res = await fetch(CONFIG_URL + '?v=' + Date.now(), { cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          config = { ...config, ...data };
+        }
+      } catch (err) {
+        console.warn('Falha ao carregar config:', err);
+      }
+      brandTitle.textContent = config.title || 'Painel TV Player';
+      folderInfo.textContent = config.folderUrl
+        ? 'Pasta Drive: ' + config.folderUrl
+        : (config.subtitle || 'Netlify + Google Drive');
+    }
+
+    async function loadPlaylist() {
+      const res = await fetch(PLAYLIST_URL + '?v=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) throw new Error('Falha ao carregar playlist');
+      const data = await res.json();
+      if (!Array.isArray(data) || !data.length) throw new Error('Playlist vazia');
+      playlist = data.filter(Boolean);
+      if (index >= playlist.length) index = 0;
+    }
+
+    function clearPendingTimer() {
+      if (timerId) {
+        clearTimeout(timerId);
+        timerId = null;
+      }
+    }
+
+    function nextItem() {
+      clearPendingTimer();
+      index = (index + 1) % playlist.length;
+      playCurrentItem();
+    }
+
+    function fallbackRetry(errorMessage) {
+      console.error(errorMessage);
+      showStatus(errorMessage + ' Tentando o próximo item...');
+      clearPendingTimer();
+      timerId = setTimeout(() => nextItem(), 1500);
+    }
+
+    function playCurrentItem() {
+      if (!playlist.length) {
+        showStatus('Sem mídias na playlist.', true);
+        return;
+      }
+
+      const item = playlist[index];
+      viewer.innerHTML = '';
+      loading.style.display = 'none';
+
+      if (item.type === 'image') {
+        const img = document.createElement('img');
+        img.className = 'fade-in';
+        img.alt = item.name || 'Imagem da playlist';
+        img.src = item.url;
+        img.onerror = () => fallbackRetry('Erro ao carregar imagem');
+        viewer.appendChild(img);
+        clearPendingTimer();
+        timerId = setTimeout(nextItem, (item.duration || 10) * 1000);
+        return;
+      }
+
+      if (item.type === 'video') {
+        const video = document.createElement('video');
+        video.className = 'fade-in';
+        video.src = item.url;
+        video.autoplay = true;
+        video.muted = true;
+        video.playsInline = true;
+        video.controls = false;
+        video.onended = nextItem;
+        video.onerror = () => fallbackRetry('Erro ao carregar vídeo');
+        video.oncanplay = () => video.play().catch(() => fallbackRetry('Autoplay bloqueado pelo navegador'));
+        viewer.appendChild(video);
+        return;
+      }
+
+      fallbackRetry('Tipo de mídia inválido na playlist');
+    }
+
+    function updateClock() {
+      const now = new Date();
+      const timeFmt = new Intl.DateTimeFormat('pt-BR', {
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        timeZone: config.timezone || 'America/Fortaleza'
+      });
+      const dateFmt = new Intl.DateTimeFormat('pt-BR', {
+        weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric',
+        timeZone: config.timezone || 'America/Fortaleza'
+      });
+      timeNow.textContent = timeFmt.format(now);
+      const rawDate = dateFmt.format(now);
+      dateNow.textContent = rawDate.charAt(0).toUpperCase() + rawDate.slice(1);
+    }
+
+    async function refreshPlaylistLoop() {
+      try {
+        await loadPlaylist();
+      } catch (err) {
+        console.warn(err);
+        showStatus('Não foi possível atualizar a playlist agora.');
+      }
+    }
+
+    async function start() {
+      updateClock();
+      setInterval(updateClock, 1000);
+      await loadConfig();
+
+      try {
+        await loadPlaylist();
+        playCurrentItem();
+      } catch (err) {
+        console.error(err);
+        loading.textContent = 'Não foi possível carregar a playlist.';
+        showStatus('Revise o arquivo playlist.json.', true);
+      }
+
+      setInterval(refreshPlaylistLoop, config.playlistRefreshMs || 60000);
+    }
+
+    start();
+  </script>
+</body>
+</html>

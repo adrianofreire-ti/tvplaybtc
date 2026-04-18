@@ -1,0 +1,8 @@
+{
+  "title": "Painel TV Player",
+  "subtitle": "Netlify + Google Drive",
+  "folderUrl": "https://github.com/adrianofreire-ti/tvplaybtc",
+  "playlistRefreshMs": 60000,
+  "errorRetryMs": 5000,
+  "timezone": "America/Fortaleza"
+}
